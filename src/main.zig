@@ -360,6 +360,7 @@ fn blueskyPost(
     session: BlueskySession,
     text: []const u8,
     reply: ?struct { root: PostRef, parent: PostRef },
+    facets_json: ?[]const u8,
 ) !PostRef {
     const truncated = truncateGraphemes(text, 300);
     const timestamp = getTimestamp();
@@ -381,6 +382,11 @@ fn blueskyPost(
     try json_buf.appendSlice(allocator, ",\"createdAt\":\"");
     try json_buf.appendSlice(allocator, &timestamp);
     try json_buf.appendSlice(allocator, "\"");
+
+    if (facets_json) |facets| {
+        try json_buf.appendSlice(allocator, ",\"facets\":");
+        try json_buf.appendSlice(allocator, facets);
+    }
 
     if (reply) |r| {
         const escaped_root_uri = try jsonEncodeString(allocator, r.root.uri);
@@ -440,18 +446,57 @@ fn postThread(
     session: BlueskySession,
     headline: []const u8,
     details: []const []const u8,
+    version: []const u8,
 ) !void {
-    const root_ref = try blueskyPost(client, allocator, session, headline, null);
+    // Build headline text with changelog link
+    const link_text = "View full changelog";
+    const release_url = try std.fmt.allocPrint(
+        allocator,
+        "https://github.com/anthropics/claude-code/releases/tag/v{s}",
+        .{version},
+    );
+    defer allocator.free(release_url);
+
+    const headline_with_link = try std.fmt.allocPrint(
+        allocator,
+        "{s}\n\n{s}",
+        .{ headline, link_text },
+    );
+    defer allocator.free(headline_with_link);
+
+    // Build facets JSON for the link
+    const link_byte_start = headline.len + 2; // +2 for "\n\n"
+    const link_byte_end = link_byte_start + link_text.len;
+
+    const escaped_url = try jsonEncodeString(allocator, release_url);
+    defer allocator.free(escaped_url);
+
+    const facets = try std.fmt.allocPrint(allocator,
+        \\[{{"index":{{"byteStart":{d},"byteEnd":{d}}},"features":[{{"$type":"app.bsky.richtext.facet#link","uri":{s}}}]}}]
+    , .{ link_byte_start, link_byte_end, escaped_url });
+    defer allocator.free(facets);
+
+    // Post headline with link facet
+    const root_ref = try blueskyPost(client, allocator, session, headline_with_link, null, facets);
     defer allocator.free(root_ref.uri);
     defer allocator.free(root_ref.cid);
     log.info("Posted headline: {s}", .{root_ref.uri});
 
+    // Post detail summaries as replies
     var parent_ref = PostRef{ .uri = root_ref.uri, .cid = root_ref.cid };
     for (details, 0..) |detail, i| {
-        const new_ref = try blueskyPost(client, allocator, session, detail, .{
+        // Format: "[1/N] summary text"
+        const numbered = try std.fmt.allocPrint(
+            allocator,
+            "[{d}/{d}] {s}",
+            .{ i + 1, details.len, detail },
+        );
+        defer allocator.free(numbered);
+
+        const new_ref = try blueskyPost(client, allocator, session, numbered, .{
             .root = root_ref,
             .parent = parent_ref,
-        });
+        }, null);
         if (i > 0) {
             allocator.free(parent_ref.uri);
             allocator.free(parent_ref.cid);
@@ -641,7 +686,7 @@ pub fn main() !void {
     defer allocator.free(session.did);
 
     log.info("Posting thread to Bluesky...", .{});
-    postThread(&client, allocator, session, headline, details) catch |err| {
+    postThread(&client, allocator, session, headline, details, latest_version) catch |err| {
         log.err("Failed to post thread: {}", .{err});
         std.process.exit(1);
     };
