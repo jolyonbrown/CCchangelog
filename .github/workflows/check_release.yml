@@ -11,10 +11,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: mlugg/setup-zig@v2
-        with:
-          version: 0.15.2
-
       - name: Restore cached version state
         uses: actions/cache/restore@v4
         with:
@@ -23,15 +19,12 @@ jobs:
           restore-keys: |
             last-posted-version-
 
-      - name: Build
-        run: zig build -Doptimize=ReleaseSafe
-
       - name: Run bot
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
           BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
-        run: ./zig-out/bin/ccchangelog
+        run: chmod +x ./ccchangelog && ./ccchangelog
 
       - name: Save version state
         uses: actions/cache/save@v4

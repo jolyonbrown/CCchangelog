@@ -556,16 +556,10 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    const api_key = getEnvVar(allocator, "ANTHROPIC_API_KEY") catch std.process.exit(1);
-    defer allocator.free(api_key);
-    const bsky_handle = getEnvVar(allocator, "BLUESKY_HANDLE") catch std.process.exit(1);
-    defer allocator.free(bsky_handle);
-    const bsky_password = getEnvVar(allocator, "BLUESKY_APP_PASSWORD") catch std.process.exit(1);
-    defer allocator.free(bsky_password);
-
     var client: std.http.Client = .{ .allocator = allocator };
     defer client.deinit();
 
+    // Check npm version first — no secrets needed for this
     log.info("Checking npm registry for latest Claude Code version...", .{});
     const latest_version = fetchNpmVersion(&client, allocator) catch |err| {
         log.err("Failed to fetch npm version: {}", .{err});
@@ -589,6 +583,14 @@ pub fn main() !void {
     } else {
         log.info("No cached version found. Treating {s} as new.", .{latest_version});
     }
+
+    // Only load secrets after confirming there's a new version
+    const api_key = getEnvVar(allocator, "ANTHROPIC_API_KEY") catch std.process.exit(1);
+    defer allocator.free(api_key);
+    const bsky_handle = getEnvVar(allocator, "BLUESKY_HANDLE") catch std.process.exit(1);
+    defer allocator.free(bsky_handle);
+    const bsky_password = getEnvVar(allocator, "BLUESKY_APP_PASSWORD") catch std.process.exit(1);
+    defer allocator.free(bsky_password);
 
     log.info("Fetching changelog from GitHub...", .{});
     const changelog_body = fetchChangelog(&client, allocator, latest_version) catch |err| {
