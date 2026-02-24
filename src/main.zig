@@ -482,9 +482,12 @@ fn postThread(
     defer allocator.free(root_ref.cid);
     log.info("Posted headline: {s}", .{root_ref.uri});
 
-    // Post detail summaries as replies
+    // Post detail summaries as replies (with delays to avoid spam filters)
     var parent_ref = PostRef{ .uri = root_ref.uri, .cid = root_ref.cid };
     for (details, 0..) |detail, i| {
+        // Delay between posts to avoid triggering Bluesky rate limits
+        std.Thread.sleep(3 * std.time.ns_per_s);
+
         // Format: "[1/N] summary text"
         const numbered = try std.fmt.allocPrint(
             allocator,
