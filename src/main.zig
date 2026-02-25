@@ -69,26 +69,41 @@ fn httpPost(
     return try aw.toOwnedSlice();
 }
 
-// ── npm version detection ───────────────────────────────────────────────────
+// ── GitHub version detection ────────────────────────────────────────────────
 
-fn fetchNpmVersion(client: *std.http.Client, allocator: std.mem.Allocator) ![]const u8 {
+const ReleaseInfo = struct {
+    version: []const u8,
+    changelog_body: ?[]const u8,
+};
+
+fn fetchLatestRelease(client: *std.http.Client, allocator: std.mem.Allocator) !ReleaseInfo {
     const body = try httpGet(
         client,
         allocator,
-        "https://registry.npmjs.org/@anthropic-ai/claude-code/latest",
-        &.{},
+        "https://api.github.com/repos/anthropics/claude-code/releases/latest",
+        &.{
+            .{ .name = "User-Agent", .value = "CCchangelog-bot" },
+            .{ .name = "Accept", .value = "application/vnd.github+json" },
+        },
     );
     defer allocator.free(body);
 
     const parsed = try std.json.parseFromSlice(
-        struct { version: []const u8 },
+        struct { tag_name: []const u8, body: ?[]const u8 },
         allocator,
         body,
         .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
     );
     defer parsed.deinit();
 
-    return try allocator.dupe(u8, parsed.value.version);
+    const tag = parsed.value.tag_name;
+    // Strip leading "v" from tag_name (e.g. "v1.0.0" -> "1.0.0")
+    const version = if (tag.len > 0 and tag[0] == 'v') tag[1..] else tag;
+
+    return .{
+        .version = try allocator.dupe(u8, version),
+        .changelog_body = if (parsed.value.body) |b| try allocator.dupe(u8, b) else null,
+    };
 }
 
 // ── State management ────────────────────────────────────────────────────────
@@ -114,47 +129,6 @@ fn writeLastVersion(version: []const u8) !void {
     var file = try std.fs.cwd().createFile("last_version.txt", .{});
     defer file.close();
     try file.writeAll(version);
-}
-
-// ── GitHub releases ─────────────────────────────────────────────────────────
-
-fn fetchChangelog(
-    client: *std.http.Client,
-    allocator: std.mem.Allocator,
-    version: []const u8,
-) ![]const u8 {
-    const tag_url = try std.fmt.allocPrint(
-        allocator,
-        "https://api.github.com/repos/anthropics/claude-code/releases/tags/v{s}",
-        .{version},
-    );
-    defer allocator.free(tag_url);
-
-    const headers = &[_]std.http.Header{
-        .{ .name = "User-Agent", .value = "CCchangelog-bot" },
-        .{ .name = "Accept", .value = "application/vnd.github+json" },
-    };
-
-    const body = httpGet(client, allocator, tag_url, headers) catch |err| blk: {
-        log.warn("Tagged release not found, trying /latest: {}", .{err});
-        break :blk try httpGet(
-            client,
-            allocator,
-            "https://api.github.com/repos/anthropics/claude-code/releases/latest",
-            headers,
-        );
-    };
-    defer allocator.free(body);
-
-    const parsed = try std.json.parseFromSlice(
-        struct { body: []const u8 },
-        allocator,
-        body,
-        .{ .ignore_unknown_fields = true, .allocate = .alloc_always },
-    );
-    defer parsed.deinit();
-
-    return try allocator.dupe(u8, parsed.value.body);
 }
 
 // ── Changelog parsing ───────────────────────────────────────────────────────
@@ -607,14 +581,16 @@ pub fn main() !void {
     var client: std.http.Client = .{ .allocator = allocator };
     defer client.deinit();
 
-    // Check npm version first — no secrets needed for this
-    log.info("Checking npm registry for latest Claude Code version...", .{});
-    const latest_version = fetchNpmVersion(&client, allocator) catch |err| {
-        log.err("Failed to fetch npm version: {}", .{err});
+    // Check GitHub releases first — no secrets needed for this
+    log.info("Checking GitHub releases for latest Claude Code version...", .{});
+    const release_info = fetchLatestRelease(&client, allocator) catch |err| {
+        log.err("Failed to fetch latest release: {}", .{err});
         std.process.exit(1);
     };
-    defer allocator.free(latest_version);
-    log.info("Latest npm version: {s}", .{latest_version});
+    defer allocator.free(release_info.version);
+    defer if (release_info.changelog_body) |b| allocator.free(b);
+    const latest_version = release_info.version;
+    log.info("Latest release version: {s}", .{latest_version});
 
     const last_version = readLastVersion(allocator) catch |err| {
         log.err("Failed to read last_version.txt: {}", .{err});
@@ -640,12 +616,7 @@ pub fn main() !void {
     const bsky_password = getEnvVar(allocator, "BLUESKY_APP_PASSWORD") catch std.process.exit(1);
     defer allocator.free(bsky_password);
 
-    log.info("Fetching changelog from GitHub...", .{});
-    const changelog_body = fetchChangelog(&client, allocator, latest_version) catch |err| {
-        log.err("Failed to fetch changelog: {}", .{err});
-        std.process.exit(1);
-    };
-    defer allocator.free(changelog_body);
+    const changelog_body = release_info.changelog_body orelse "";
 
     const entries = parseChangelog(allocator, changelog_body) catch |err| {
         log.err("Failed to parse changelog: {}", .{err});

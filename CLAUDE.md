@@ -4,20 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-CCchangelog is a Zig bot that monitors Claude Code releases on npm and posts changelog summaries to Bluesky as threaded posts. It uses the Anthropic API (Claude Haiku) to generate concise summaries.
+CCchangelog is a Zig bot that monitors Claude Code releases via the GitHub Releases API and posts changelog summaries to Bluesky as threaded posts. It uses the Anthropic API (Claude Haiku) to generate concise summaries.
 
 ## Architecture
 
 ```
 Every 15 min (GitHub Actions cron):
-  1. npm registry → check latest @anthropic-ai/claude-code version
+  1. GitHub Releases API → fetch latest release (version + changelog body)
   2. Compare with cached last_version.txt
   3. If new version:
-     a. GitHub releases API → fetch changelog body
-     b. Parse changelog into bullet entries
-     c. Anthropic API (Haiku) → generate headline + detail summaries
-     d. Bluesky AT Protocol → post thread
-     e. Write new version to last_version.txt
+     a. Parse changelog into bullet entries
+     b. Anthropic API (Haiku) → generate headline + detail summaries
+     c. Bluesky AT Protocol → post thread
+     d. Write new version to last_version.txt
 ```
 
 All logic is in `src/main.zig` — pure Zig with no shell scripts or external dependencies.
