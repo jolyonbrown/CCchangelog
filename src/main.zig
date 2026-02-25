@@ -639,7 +639,9 @@ pub fn main() !void {
         try std.fmt.allocPrint(allocator, "Claude Code {s}", .{latest_version});
     defer allocator.free(headline);
 
-    const details = if (entries.len > 0)
+    // Skip detail posts when there are few entries — the headline already covers them,
+    // and Haiku tends to produce meta-responses when asked to summarize a single item.
+    const details = if (entries.len > 4)
         generateDetailSummaries(&client, allocator, api_key, entries) catch |err| {
             log.err("Failed to generate detail summaries: {}", .{err});
             std.process.exit(1);
