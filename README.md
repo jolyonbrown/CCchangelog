@@ -8,10 +8,9 @@ Follow at [@claudecodechanges.bsky.social](https://bsky.app/profile/claudecodech
 
 Every 15 minutes, a GitHub Actions cron job:
 
-1. Checks the npm registry for the latest `@anthropic-ai/claude-code` version
+1. Checks the GitHub Releases API for the latest Claude Code release (fetching both the version and changelog body in a single request)
 2. Compares it against the last posted version (cached between runs)
 3. If a new version is detected:
-   - Fetches the changelog from the GitHub releases API
    - Parses bullet-point entries from the release body
    - Sends them to Claude Haiku to generate concise summaries
    - Posts a thread to Bluesky with a headline, changelog link, and detail posts
