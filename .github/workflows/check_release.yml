@@ -9,10 +9,10 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Restore cached version state
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: last_version.txt
           key: last-posted-version-dummy
@@ -27,8 +27,8 @@ jobs:
         run: chmod +x ./ccchangelog && ./ccchangelog
 
       - name: Save version state
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         if: always()
         with:
           path: last_version.txt
-          key: last-posted-version-${{ github.run_id }}
+          key: last-posted-version-${{ github.run_id }}-${{ github.run_attempt }}
